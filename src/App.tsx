@@ -63,7 +63,7 @@ function App() {
       </div>
       <ResizeHandle onResize={handleSidebarResize} />
       <div className="app__note-list" style={{ width: noteListWidth }}>
-        <NoteList entries={entries} />
+        <NoteList entries={entries} selection={selection} />
       </div>
       <ResizeHandle onResize={handleNoteListResize} />
       <div className="app__editor">
