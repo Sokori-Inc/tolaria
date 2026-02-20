@@ -11,6 +11,7 @@ import { CommitDialog } from './components/CommitDialog'
 import { StatusBar } from './components/StatusBar'
 import { useVaultLoader } from './hooks/useVaultLoader'
 import { useNoteActions } from './hooks/useNoteActions'
+import { useAppKeyboard } from './hooks/useAppKeyboard'
 import type { SidebarSelection, GitCommit } from './types'
 import './App.css'
 
@@ -63,28 +64,13 @@ function App() {
     vault.loadGitHistory(notes.activeTabPath).then(setGitHistory)
   }, [notes.activeTabPath, vault.loadGitHistory])
 
-  // Global keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey
-      if (mod && e.key === 'p') {
-        e.preventDefault()
-        setShowQuickOpen(true)
-      } else if (mod && e.key === 'n') {
-        e.preventDefault()
-        setShowCreateDialog(true)
-      } else if (mod && e.key === 's') {
-        e.preventDefault()
-        setToastMessage('Saved')
-      } else if (mod && e.key === 'w') {
-        e.preventDefault()
-        const path = notes.activeTabPathRef.current
-        if (path) notes.handleCloseTabRef.current(path)
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [notes.activeTabPathRef, notes.handleCloseTabRef])
+  useAppKeyboard({
+    onQuickOpen: () => setShowQuickOpen(true),
+    onCreateNote: () => setShowCreateDialog(true),
+    onSave: () => setToastMessage('Saved'),
+    activeTabPathRef: notes.activeTabPathRef,
+    handleCloseTabRef: notes.handleCloseTabRef,
+  })
 
   const handleSidebarResize = useCallback((delta: number) => {
     setSidebarWidth((w) => Math.max(150, Math.min(400, w + delta)))
