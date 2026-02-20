@@ -31,6 +31,27 @@ Laputa App is a personal knowledge and life management desktop app, built with T
 - Keep components responsive-ready (don't hardcode four-panel layout assumptions)
 - Use Context7 MCP to look up current API docs for Tauri v2, CodeMirror 6, etc.
 
+## Product Philosophy
+
+These principles apply to every task, especially when requirements are intentionally vague.
+
+### Think like a PM, not just a developer
+
+Features in this project are often described at a high level on purpose. Luca trusts you to make sensible product decisions. When something is unclear:
+
+- **Don't ask, decide.** Pick the interpretation that makes the most sense for a first working version. Document your decision in the commit message or a code comment.
+- **Bias toward shipping.** A working, testable feature is the goal. If you're choosing between a perfect solution that takes 4 hours and a good-enough one that takes 1 hour, ship the good-enough one first.
+- **Never block waiting for instructions.** Luca may not read messages for hours. If you're stuck on a product decision, make the call yourself. The worst case is a short code review; the alternative is hours of delay.
+- **Document your reasoning.** When you make a non-obvious product decision (e.g., "I chose to show archived notes grayed out rather than hiding them entirely"), note it in the relevant `docs/` file so Luca can review and adjust.
+
+### Always update test data
+
+If a feature requires new data to be testable (e.g., a new `archived: true` property in frontmatter, a new type of note, a relationship type), update `src/mock-tauri.ts` with realistic examples before writing the feature. This ensures visual verification actually tests the new code path.
+
+### Always keep docs current
+
+After every meaningful architectural decision or abstraction, update the relevant file in `docs/`. The docs in this repo are how Luca understands what was built and why. Stale docs are worse than no docs.
+
 ## How to Work
 
 ### Approach
