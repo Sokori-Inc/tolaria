@@ -9,7 +9,8 @@ import { getTypeColor, getTypeLightColor } from '../utils/typeColors'
 import { getTypeIcon } from './NoteItem'
 import { findEntryByTarget } from '../utils/wikilinkColors'
 import type { FrontmatterValue } from './Inspector'
-import { NoteAutocomplete } from './NoteAutocomplete'
+import { NoteSearchList } from './NoteSearchList'
+import { useNoteSearch } from '../hooks/useNoteSearch'
 
 function isWikilink(value: string): boolean {
   return /^\[\[.*\]\]$/.test(value)
@@ -101,21 +102,49 @@ function resolveRefProps(ref: string, entries: VaultEntry[], typeEntryMap: Recor
   }
 }
 
-function InlineAddNote({ entries, typeEntryMap, onAdd }: {
+function SearchDropdown({ search, onSelect }: {
+  search: ReturnType<typeof useNoteSearch>
+  onSelect: (title: string) => void
+}) {
+  return (
+    <div className="absolute left-0 right-0 top-full z-50 mt-0.5 rounded border border-border bg-popover shadow-md">
+      <NoteSearchList
+        items={search.results}
+        selectedIndex={search.selectedIndex}
+        getItemKey={(item) => item.entry.path}
+        onItemClick={(item) => onSelect(item.entry.title)}
+        onItemHover={(i) => search.setSelectedIndex(i)}
+        className="max-h-[160px] overflow-y-auto"
+      />
+    </div>
+  )
+}
+
+function InlineAddNote({ entries, onAdd }: {
   entries: VaultEntry[]
-  typeEntryMap: Record<string, VaultEntry>
   onAdd: (noteTitle: string) => void
 }) {
   const [active, setActive] = useState(false)
   const [query, setQuery] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const search = useNoteSearch(entries, query, 8)
 
-  const handleSubmit = useCallback((title: string) => {
-    const trimmed = title.trim()
-    if (!trimmed) return
-    onAdd(trimmed)
+  const selectAndClose = useCallback((title: string) => {
+    onAdd(title)
     setQuery('')
     setActive(false)
   }, [onAdd])
+
+  const handleConfirm = useCallback(() => {
+    const title = search.selectedEntry?.title ?? query.trim()
+    if (title) selectAndClose(title)
+  }, [search.selectedEntry, query, selectAndClose])
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    search.handleKeyDown(e)
+    if (e.key === 'Enter') { e.preventDefault(); handleConfirm() }
+    else if (e.key === 'Escape') { setQuery(''); setActive(false) }
+  }, [search, handleConfirm])
 
   if (!active) {
     return (
@@ -132,33 +161,36 @@ function InlineAddNote({ entries, typeEntryMap, onAdd }: {
   }
 
   return (
-    <div className="mt-1 flex items-center gap-1">
-      <div className="flex-1" style={{ minWidth: 0 }}>
-        <NoteAutocomplete
-          entries={entries}
-          typeEntryMap={typeEntryMap}
-          value={query}
-          onChange={setQuery}
-          onSelect={handleSubmit}
-          onEscape={() => { setQuery(''); setActive(false) }}
-          placeholder="Note title"
+    <div className="relative mt-1">
+      <div className="flex items-center gap-1">
+        <input
+          ref={inputRef}
           autoFocus
-          testId="add-relation-ref-input"
+          className="flex-1 border border-border bg-transparent px-2 py-0.5 text-xs text-foreground"
+          style={{ borderRadius: 4, outline: 'none', minWidth: 0 }}
+          placeholder="Note title"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          data-testid="add-relation-ref-input"
         />
+        <button
+          className="shrink-0 border-none bg-transparent p-0.5 text-muted-foreground hover:text-foreground"
+          onClick={handleConfirm}
+          disabled={!query.trim()}
+        >
+          <Plus size={12} />
+        </button>
+        <button
+          className="shrink-0 border-none bg-transparent p-0.5 text-muted-foreground hover:text-foreground"
+          onClick={() => { setQuery(''); setActive(false) }}
+        >
+          <X size={12} />
+        </button>
       </div>
-      <button
-        className="shrink-0 border-none bg-transparent p-0.5 text-muted-foreground hover:text-foreground"
-        onClick={() => handleSubmit(query)}
-        disabled={!query.trim()}
-      >
-        <Plus size={12} />
-      </button>
-      <button
-        className="shrink-0 border-none bg-transparent p-0.5 text-muted-foreground hover:text-foreground"
-        onClick={() => { setQuery(''); setActive(false) }}
-      >
-        <X size={12} />
-      </button>
+      {query.trim() && search.results.length > 0 && (
+        <SearchDropdown search={search} onSelect={selectAndClose} />
+      )}
     </div>
   )
 }
@@ -185,7 +217,7 @@ function RelationshipGroup({ label, refs, entries, typeEntryMap, onNavigate, onR
           )
         })}
       </div>
-      {onAddRef && <InlineAddNote entries={entries} typeEntryMap={typeEntryMap} onAdd={onAddRef} />}
+      {onAddRef && <InlineAddNote entries={entries} onAdd={onAddRef} />}
     </div>
   )
 }
@@ -202,9 +234,48 @@ function extractRelationshipRefs(frontmatter: ParsedFrontmatter): { key: string;
     .filter(({ refs }) => refs.length > 0)
 }
 
-function AddRelationshipForm({ entries, typeEntryMap, onAddProperty }: {
+function NoteTargetInput({ entries, value, onChange, onSubmit, onCancel }: {
   entries: VaultEntry[]
-  typeEntryMap: Record<string, VaultEntry>
+  value: string
+  onChange: (v: string) => void
+  onSubmit?: () => void
+  onCancel?: () => void
+}) {
+  const [focused, setFocused] = useState(false)
+  const search = useNoteSearch(entries, value, 8)
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    search.handleKeyDown(e)
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (search.selectedEntry) { onChange(search.selectedEntry.title); setFocused(false) }
+      else onSubmit?.()
+    } else if (e.key === 'Escape') { onCancel?.() }
+  }, [search, onChange, onSubmit, onCancel])
+
+  const showDropdown = focused && value.trim() && search.results.length > 0
+
+  return (
+    <div className="relative">
+      <input
+        className="w-full border border-border bg-transparent px-2 py-1 text-xs text-foreground"
+        style={{ borderRadius: 4, outline: 'none' }}
+        placeholder="Note title"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        onKeyDown={handleKeyDown}
+      />
+      {showDropdown && (
+        <SearchDropdown search={search} onSelect={(title) => { onChange(title); setFocused(false) }} />
+      )}
+    </div>
+  )
+}
+
+function AddRelationshipForm({ entries, onAddProperty }: {
+  entries: VaultEntry[]
   onAddProperty: (key: string, value: FrontmatterValue) => void
 }) {
   const [relKey, setRelKey] = useState('')
@@ -220,7 +291,9 @@ function AddRelationshipForm({ entries, typeEntryMap, onAddProperty }: {
     setRelKey(''); setRelTarget(''); setShowForm(false)
   }, [relKey, relTarget, onAddProperty])
 
-  const resetForm = () => { setShowForm(false); setRelKey(''); setRelTarget('') }
+  const resetForm = useCallback(() => {
+    setShowForm(false); setRelKey(''); setRelTarget('')
+  }, [])
 
   if (!showForm) {
     return (
@@ -238,18 +311,9 @@ function AddRelationshipForm({ entries, typeEntryMap, onAddProperty }: {
         placeholder="Relationship name"
         value={relKey}
         onChange={e => setRelKey(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Escape') resetForm() }}
+        onKeyDown={e => { if (e.key === 'Enter') submitForm(); else if (e.key === 'Escape') resetForm() }}
       />
-      <NoteAutocomplete
-        entries={entries}
-        typeEntryMap={typeEntryMap}
-        value={relTarget}
-        onChange={setRelTarget}
-        onSelect={(title) => submitForm(title)}
-        onEscape={resetForm}
-        placeholder="Note title"
-        testId="add-relationship-note-input"
-      />
+      <NoteTargetInput entries={entries} value={relTarget} onChange={setRelTarget} onSubmit={submitForm} onCancel={resetForm} />
       <div className="flex gap-1.5">
         <button className="flex-1 border border-border bg-transparent text-xs text-foreground" style={{ borderRadius: 4, padding: '4px 0' }} onClick={() => submitForm()} disabled={!relKey.trim() || !relTarget.trim()}>Add</button>
         <button className="border border-border bg-transparent text-xs text-muted-foreground" style={{ borderRadius: 4, padding: '4px 8px' }} onClick={resetForm}>Cancel</button>
@@ -258,22 +322,17 @@ function AddRelationshipForm({ entries, typeEntryMap, onAddProperty }: {
   )
 }
 
-function removeRefFromGroup(groups: { key: string; refs: string[] }[], key: string, refToRemove: string, onUpdate: (k: string, v: FrontmatterValue) => void, onDelete: (k: string) => void) {
-  const group = groups.find(g => g.key === key)
-  if (!group) return
-  const remaining = group.refs.filter(r => r !== refToRemove)
-  if (remaining.length === 0) onDelete(key)
-  else if (remaining.length === 1) onUpdate(key, remaining[0])
-  else onUpdate(key, remaining)
+function updateRefsForRemoval(refs: string[], refToRemove: string): FrontmatterValue | null {
+  const remaining = refs.filter(r => r !== refToRemove)
+  if (remaining.length === 0) return null
+  return remaining.length === 1 ? remaining[0] : remaining
 }
 
-function addRefToGroup(groups: { key: string; refs: string[] }[], key: string, noteTitle: string, onUpdate: (k: string, v: FrontmatterValue) => void) {
-  const existing = groups.find(g => g.key === key)?.refs ?? []
+function updateRefsForAddition(refs: string[], noteTitle: string): FrontmatterValue | false {
   const newRef = `[[${noteTitle}]]`
-  if (existing.includes(newRef)) return
-  const updated = [...existing, newRef]
-  if (updated.length === 1) onUpdate(key, updated[0])
-  else onUpdate(key, updated)
+  if (refs.includes(newRef)) return false
+  const updated = [...refs, newRef]
+  return updated.length === 1 ? updated[0] : updated
 }
 
 export function DynamicRelationshipsPanel({ frontmatter, entries, typeEntryMap, onNavigate, onAddProperty, onUpdateProperty, onDeleteProperty }: {
@@ -287,12 +346,18 @@ export function DynamicRelationshipsPanel({ frontmatter, entries, typeEntryMap, 
 
   const handleRemoveRef = useCallback((key: string, refToRemove: string) => {
     if (!onUpdateProperty || !onDeleteProperty) return
-    removeRefFromGroup(relationshipEntries, key, refToRemove, onUpdateProperty, onDeleteProperty)
+    const group = relationshipEntries.find(g => g.key === key)
+    if (!group) return
+    const result = updateRefsForRemoval(group.refs, refToRemove)
+    if (result === null) onDeleteProperty(key)
+    else onUpdateProperty(key, result)
   }, [relationshipEntries, onUpdateProperty, onDeleteProperty])
 
   const handleAddRef = useCallback((key: string, noteTitle: string) => {
     if (!onUpdateProperty) return
-    addRefToGroup(relationshipEntries, key, noteTitle, onUpdateProperty)
+    const existing = relationshipEntries.find(g => g.key === key)?.refs ?? []
+    const result = updateRefsForAddition(existing, noteTitle)
+    if (result !== false) onUpdateProperty(key, result)
   }, [relationshipEntries, onUpdateProperty])
 
   const canEdit = !!onUpdateProperty && !!onDeleteProperty
@@ -310,7 +375,7 @@ export function DynamicRelationshipsPanel({ frontmatter, entries, typeEntryMap, 
         ))
       }
       {onAddProperty
-        ? <AddRelationshipForm entries={entries} typeEntryMap={typeEntryMap} onAddProperty={onAddProperty} />
+        ? <AddRelationshipForm entries={entries} onAddProperty={onAddProperty} />
         : <button className="mt-2 w-full border border-border bg-transparent text-center text-muted-foreground" style={{ borderRadius: 6, padding: '6px 12px', fontSize: 12, opacity: 0.5, cursor: 'not-allowed' }} disabled>+ Link existing</button>
       }
     </div>
